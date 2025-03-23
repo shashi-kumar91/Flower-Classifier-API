@@ -13,8 +13,7 @@ def load_model():
     if not os.path.exists(model_path):
         print("Downloading model (225 MB, may take a moment)...")
         url = "https://drive.google.com/file/d/1pZ_DJIpa9YXSxB32rASBYw-VuFjgciY2/view?usp=drive_link"
-        # Fix URL for direct download
-        file_id = url.split('/d/')[1].split('/')[0]  # Extract file ID
+        file_id = url.split('/d/')[1].split('/')[0]
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
         response = requests.get(download_url)
         with open(model_path, 'wb') as f:
@@ -70,4 +69,6 @@ def predict():
     return jsonify({'message': 'Done', 'prediction': output})
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Use Render's PORT environment variable, default to 5000 locally
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
