@@ -1,26 +1,27 @@
-from flask import Flask, request, jsonify
+import streamlit as st
 import tensorflow as tf
 import numpy as np
 from PIL import Image
-import io
 import os
-import requests
+import logging
 
-app = Flask(__name__)
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# Function to load the pre-trained model and cache it
+@st.cache_resource
 def load_model():
-    model_path = 'oxford_flower102_model_trained.h5'
+    model_path = 'oxford_flower102_model_trained.h5'  # Assumes model is in root directory
     if not os.path.exists(model_path):
-        print("Downloading model (225 MB, may take a moment)...")
-        url = "https://drive.google.com/file/d/1pZ_DJIpa9YXSxB32rASBYw-VuFjgciY2/view?usp=drive_link"
-        file_id = url.split('/d/')[1].split('/')[0]
-        download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        response = requests.get(download_url)
-        with open(model_path, 'wb') as f:
-            f.write(response.content)
+        logger.error("Model file not found at %s", model_path)
+        raise FileNotFoundError(f"Model file {model_path} not found!")
+    logger.info("Loading model from %s", model_path)
     model = tf.keras.models.load_model(model_path, compile=False)
+    logger.info("Model loaded successfully")
     return model
 
+# Function to predict the class of the input image
 def predict_class(image, model):
     image = tf.cast(image, tf.float32)
     image = tf.image.resize(image, [180, 180])
@@ -28,7 +29,13 @@ def predict_class(image, model):
     prediction = model.predict(image)
     return prediction
 
+# Load the model (cached)
 model = load_model()
+
+# Streamlit interface
+st.title("Flower Classifier")
+
+file = st.file_uploader("Upload a flower image", type=["jpg", "jpeg", "png"])
 
 class_names = [
     'pink primrose', 'hard-leaved pocket orchid', 'canterbury bells', 'sweet pea',
@@ -51,24 +58,18 @@ class_names = [
     'mexican petunia', 'bromelia', 'blanket flower', 'trumpet creeper', 'blackberry lily'
 ]
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    if 'file' not in request.files:
-        return jsonify({'message': 'Waiting for upload....'})
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'message': 'Waiting for upload....'})
+if file is None:
+    st.text("Waiting for upload...")
+else:
+    slot = st.empty()
+    slot.text("Running inference...")
 
     test_image = Image.open(file)
+    st.image(test_image, caption="Input Image", width=400)
+
     pred = predict_class(np.asarray(test_image), model)
-
     result = class_names[np.argmax(pred)]
-    output = 'The image is a ' + result
+    output = "The image is a " + result
 
-    return jsonify({'message': 'Done', 'prediction': output})
-
-if __name__ == '__main__':
-    # Use Render's PORT environment variable, default to 5000 locally
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    slot.text("Done")
+    st.success(output)
