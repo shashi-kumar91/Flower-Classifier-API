@@ -12,9 +12,11 @@ def load_model():
     model_path = 'oxford_flower102_model_trained.h5'
     if not os.path.exists(model_path):
         print("Downloading model (225 MB, may take a moment)...")
-        url = "https://drive.google.com/file/d/1pZ_DJIpa9YXSxB32rASBYw-VuFjgciY2/view?usp=drive_link"  # Replace with your link
-        url = url.replace("view?usp=sharing", "uc?export=download")
-        response = requests.get(url)
+        url = "https://drive.google.com/file/d/1pZ_DJIpa9YXSxB32rASBYw-VuFjgciY2/view?usp=drive_link"
+        # Fix URL for direct download
+        file_id = url.split('/d/')[1].split('/')[0]  # Extract file ID
+        download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+        response = requests.get(download_url)
         with open(model_path, 'wb') as f:
             f.write(response.content)
     model = tf.keras.models.load_model(model_path, compile=False)
