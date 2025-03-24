@@ -1,23 +1,35 @@
-import streamlit as st
-import tensorflow as tf
-import numpy as np
-from PIL import Image
 import os
+import gdown
+import tensorflow as tf
+import streamlit as st
+from PIL import Image
+import numpy as np
 import logging
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Function to load the pre-trained model and cache it
+# Model details
+MODEL_PATH = "oxford_flower102_model_trained.h5"
+DRIVE_FILE_ID = "1pZ_DJIpa9YXSxB32rASBYw-VuFjgciY2"  # Google Drive file ID
+
+# Function to download model if not available locally
+def download_model():
+    """Download the model from Google Drive if not present"""
+    url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
+    gdown.download(url, MODEL_PATH, quiet=False)
+
+# Function to load the model
 @st.cache_resource
 def load_model():
-    model_path = 'oxford_flower102_model_trained.h5'  # Assumes model is in root directory
-    if not os.path.exists(model_path):
-        logger.error("Model file not found at %s", model_path)
-        raise FileNotFoundError(f"Model file {model_path} not found!")
-    logger.info("Loading model from %s", model_path)
-    model = tf.keras.models.load_model(model_path, compile=False)
+    """Load the model, downloading it first if necessary"""
+    if not os.path.exists(MODEL_PATH):
+        logger.error("Model file not found at %s", MODEL_PATH)
+        st.warning(f"Model file {MODEL_PATH} not found! Downloading from Google Drive...")
+        download_model()
+    logger.info("Loading model from %s", MODEL_PATH)
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
     logger.info("Model loaded successfully")
     return model
 
@@ -29,13 +41,14 @@ def predict_class(image, model):
     prediction = model.predict(image)
     return prediction
 
-# Load the model (cached)
+# Load the model
 model = load_model()
 
-# Streamlit interface
-st.title("Flower Classifier")
+# Streamlit UI
+st.title("Flower Classification App")
+st.write("Upload an image to classify the flower type.")
 
-file = st.file_uploader("Upload a flower image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png", "jpeg"])
 
 class_names = [
     'pink primrose', 'hard-leaved pocket orchid', 'canterbury bells', 'sweet pea',
@@ -58,14 +71,14 @@ class_names = [
     'mexican petunia', 'bromelia', 'blanket flower', 'trumpet creeper', 'blackberry lily'
 ]
 
-if file is None:
+if uploaded_file is None:
     st.text("Waiting for upload...")
 else:
     slot = st.empty()
     slot.text("Running inference...")
 
-    test_image = Image.open(file)
-    st.image(test_image, caption="Input Image", width=400)
+    test_image = Image.open(uploaded_file)
+    st.image(test_image, caption="Uploaded Image", use_column_width=True)
 
     pred = predict_class(np.asarray(test_image), model)
     result = class_names[np.argmax(pred)]
