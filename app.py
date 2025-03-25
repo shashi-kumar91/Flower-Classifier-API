@@ -26,7 +26,7 @@ def download_model():
         logger.info("Model downloaded successfully")
     except Exception as e:
         logger.error("Failed to download model: %s", str(e))
-        raise
+        raise Exception(f"Model download failed: {str(e)}")
 
 # Initialize FastAPI app
 app = FastAPI(title="Flower Classifier API")
@@ -67,8 +67,12 @@ async def startup_event():
         logger.error("Model file not found at %s", MODEL_PATH)
         download_model()
     logger.info("Loading model from %s", MODEL_PATH)
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    logger.info("Model loaded successfully")
+    try:
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        logger.info("Model loaded successfully")
+    except Exception as e:
+        logger.error("Failed to load model: %s", str(e))
+        raise Exception(f"Model loading failed: {str(e)}")
 
 # Function to predict the class of the input image
 def predict_class(image: Image.Image, model):
@@ -99,3 +103,9 @@ async def predict(file: UploadFile = File(...)):
 @app.get("/health")
 async def health():
     return {"message": "Flower Classifier API is running"}
+
+# Run the app with dynamic port binding
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))  # Use PORT env var, default to 8000 locally
+    uvicorn.run(app, host="0.0.0.0", port=port)
