@@ -1,89 +1,73 @@
-import os
-import gdown
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.staticfiles import StaticFiles
+import streamlit as st
 import tensorflow as tf
 import numpy as np
+import gdown
+import os
 from PIL import Image
-import io
-import logging
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Model details
 MODEL_PATH = "oxford_flower102_model_trained.h5"
 DRIVE_FILE_ID = "1pZ_DJIpa9YXSxB32rASBYw-VuFjgciY2"
 
-# Function to download model if not available locally
-def download_model():
-    """Download the model from Google Drive if not present"""
-    url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
-    logger.info("Downloading model from Google Drive...")
-    try:
-        gdown.download(url, MODEL_PATH, quiet=False)
-        logger.info("Model downloaded successfully")
-    except Exception as e:
-        logger.error("Failed to download model: %s", str(e))
-        raise Exception(f"Model download failed: {str(e)}")
-
-# Initialize FastAPI app
-app = FastAPI(title="Flower Classifier API")
-
-# Mount static files
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
-# Global model variable
-model = None
-
-# Load model at startup
-@app.on_event("startup")
-async def startup_event():
-    global model
+# Function to download the model if not available locally
+@st.cache_resource
+def load_model():
     if not os.path.exists(MODEL_PATH):
-        logger.error("Model file not found at %s", MODEL_PATH)
-        download_model()
-    logger.info("Loading model from %s", MODEL_PATH)
-    try:
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-        logger.info("Model loaded successfully")
-    except Exception as e:
-        logger.error("Failed to load model: %s", str(e))
-        raise Exception(f"Model loading failed: {str(e)}")
+        url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
+        st.info("Downloading model from Google Drive...")
+        gdown.download(url, MODEL_PATH, quiet=False)
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    return model
 
 # Function to predict the class of the input image
-def predict_class(image: Image.Image, model):
-    image = tf.cast(np.asarray(image), tf.float32)
+def predict_class(image, model):
+    image = tf.cast(image, tf.float32)
     image = tf.image.resize(image, [180, 180])
     image = np.expand_dims(image, axis=0)
     prediction = model.predict(image)
-    return "Prediction Result"
+    return prediction
 
-# Prediction endpoint
-@app.post("/predict")
-async def predict(file: UploadFile = File(...)):
-    if not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
+# Load model
+model = load_model()
+
+# Class names
+class_names = [
+    'pink primrose', 'hard-leaved pocket orchid', 'canterbury bells', 'sweet pea',
+    'english marigold', 'tiger lily', 'moon orchid', 'bird of paradise', 'monkshood',
+    'globe thistle', 'snapdragon', "colt's foot", 'king protea', 'spear thistle',
+    'yellow iris', 'globe-flower', 'purple coneflower', 'peruvian lily', 'balloon flower',
+    'giant white arum lily', 'fire lily', 'pincushion flower', 'fritillary', 'red ginger',
+    'grape hyacinth', 'corn poppy', 'prince of wales feathers', 'stemless gentian', 'artichoke',
+    'sweet william', 'carnation', 'garden phlox', 'love in the mist', 'mexican aster',
+    'alpine sea holly', 'ruby-lipped cattleya', 'cape flower', 'great masterwort', 'siam tulip',
+    'lenten rose', 'barberton daisy', 'daffodil', 'sword lily', 'poinsettia', 'bolero deep blue',
+    'wallflower', 'marigold', 'buttercup', 'oxeye daisy', 'common dandelion', 'petunia',
+    'wild pansy', 'primula', 'sunflower', 'pelargonium', 'bishop of llandaff', 'gaura', 'geranium',
+    'orange dahlia', 'pink-yellow dahlia', 'cautleya spicata', 'japanese anemone', 'black-eyed susan',
+    'silverbush', 'californian poppy', 'osteospermum', 'spring crocus', 'bearded iris', 'windflower',
+    'tree poppy', 'gazania', 'azalea', 'water lily', 'rose', 'thorn apple', 'morning glory',
+    'passion flower', 'lotus lotus', 'toad lily', 'anthurium', 'frangipani', 'clematis', 'hibiscus',
+    'columbine', 'desert-rose', 'tree mallow', 'magnolia', 'cyclamen', 'watercress', 'canna lily',
+    'hippeastrum', 'bee balm', 'ball moss', 'foxglove', 'bougainvillea', 'camellia', 'mallow',
+    'mexican petunia', 'bromelia', 'blanket flower', 'trumpet creeper', 'blackberry lily'
+]
+
+# Streamlit UI
+st.title("Flower Classifier")
+file = st.file_uploader("Upload an image of a flower", type=["jpg", "png"])
+
+if file is None:
+    st.text("Waiting for upload....")
+else:
+    slot = st.empty()
+    slot.text("Running inference....")
     
-    try:
-        contents = await file.read()
-        image = Image.open(io.BytesIO(contents))
-        logger.info("Image uploaded and opened successfully")
-        result = predict_class(image, model)
-        logger.info("Prediction: %s", result)
-        return {"prediction": result}
-    except Exception as e:
-        logger.error("Error processing image: %s", str(e))
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
-
-# Health check endpoint
-@app.get("/health")
-async def health():
-    return {"message": "Flower Classifier API is running"}
-
-# Run the app with dynamic port binding
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 8000))  # Use PORT env var, default to 8000 locally
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    test_image = Image.open(file)
+    st.image(test_image, caption="Input Image", width=400)
+    
+    pred = predict_class(np.asarray(test_image), model)
+    result = class_names[np.argmax(pred)]
+    output = f"The image is a {result}"
+    
+    slot.text("Done")
+    st.success(output)
