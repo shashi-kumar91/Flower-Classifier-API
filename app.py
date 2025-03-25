@@ -1,9 +1,11 @@
 import os
 import gdown
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.staticfiles import StaticFiles
 import tensorflow as tf
-import streamlit as st
-from PIL import Image
 import numpy as np
+from PIL import Image
+import io
 import logging
 
 # Set up logging
@@ -12,44 +14,30 @@ logger = logging.getLogger(__name__)
 
 # Model details
 MODEL_PATH = "oxford_flower102_model_trained.h5"
-DRIVE_FILE_ID = "1pZ_DJIpa9YXSxB32rASBYw-VuFjgciY2"  # Google Drive file ID
+DRIVE_FILE_ID = "1pZ_DJIpa9YXSxB32rASBYw-VuFjgciY2"
 
 # Function to download model if not available locally
 def download_model():
     """Download the model from Google Drive if not present"""
-    url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
-    gdown.download(url, MODEL_PATH, quiet=False)
+    url = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}"
+    logger.info("Downloading model from Google Drive...")
+    try:
+        gdown.download(url, MODEL_PATH, quiet=False)
+        logger.info("Model downloaded successfully")
+    except Exception as e:
+        logger.error("Failed to download model: %s", str(e))
+        raise
 
-# Function to load the model
-@st.cache_resource
-def load_model():
-    """Load the model, downloading it first if necessary"""
-    if not os.path.exists(MODEL_PATH):
-        logger.error("Model file not found at %s", MODEL_PATH)
-        st.warning(f"Model file {MODEL_PATH} not found! Downloading from Google Drive...")
-        download_model()
-    logger.info("Loading model from %s", MODEL_PATH)
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    logger.info("Model loaded successfully")
-    return model
+# Initialize FastAPI app
+app = FastAPI(title="Flower Classifier API")
 
-# Function to predict the class of the input image
-def predict_class(image, model):
-    image = tf.cast(image, tf.float32)
-    image = tf.image.resize(image, [180, 180])
-    image = np.expand_dims(image, axis=0)
-    prediction = model.predict(image)
-    return prediction
+# Mount static files
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
-# Load the model
-model = load_model()
+# Global model variable
+model = None
 
-# Streamlit UI
-st.title("Flower Classification App")
-st.write("Upload an image to classify the flower type.")
-
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png", "jpeg"])
-
+# Class names
 class_names = [
     'pink primrose', 'hard-leaved pocket orchid', 'canterbury bells', 'sweet pea',
     'english marigold', 'tiger lily', 'moon orchid', 'bird of paradise', 'monkshood',
@@ -71,18 +59,43 @@ class_names = [
     'mexican petunia', 'bromelia', 'blanket flower', 'trumpet creeper', 'blackberry lily'
 ]
 
-if uploaded_file is None:
-    st.text("Waiting for upload...")
-else:
-    slot = st.empty()
-    slot.text("Running inference...")
+# Load model at startup
+@app.on_event("startup")
+async def startup_event():
+    global model
+    if not os.path.exists(MODEL_PATH):
+        logger.error("Model file not found at %s", MODEL_PATH)
+        download_model()
+    logger.info("Loading model from %s", MODEL_PATH)
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    logger.info("Model loaded successfully")
 
-    test_image = Image.open(uploaded_file)
-    st.image(test_image, caption="Uploaded Image", use_column_width=True)
+# Function to predict the class of the input image
+def predict_class(image: Image.Image, model):
+    image = tf.cast(np.asarray(image), tf.float32)
+    image = tf.image.resize(image, [180, 180])
+    image = np.expand_dims(image, axis=0)
+    prediction = model.predict(image)
+    return class_names[np.argmax(prediction)]
 
-    pred = predict_class(np.asarray(test_image), model)
-    result = class_names[np.argmax(pred)]
-    output = "The image is a " + result
+# Prediction endpoint
+@app.post("/predict")
+async def predict(file: UploadFile = File(...)):
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents))
+        logger.info("Image uploaded and opened successfully")
+        result = predict_class(image, model)
+        logger.info("Prediction: %s", result)
+        return {"prediction": result}
+    except Exception as e:
+        logger.error("Error processing image: %s", str(e))
+        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
 
-    slot.text("Done")
-    st.success(output)
+# Health check endpoint
+@app.get("/health")
+async def health():
+    return {"message": "Flower Classifier API is running"}
